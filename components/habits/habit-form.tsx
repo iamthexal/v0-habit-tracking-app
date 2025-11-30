@@ -1,3 +1,7 @@
+{
+type: uploaded file
+fileName: iamthexal/v0-habit-tracking-app/v0-habit-tracking-app-e64391ab4955e5c244ae7cfbf2205de366211492/components/habits/habit-form.tsx
+fullContent:
 "use client"
 
 import type React from "react"
@@ -16,7 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
 import { toast } from "sonner"
-import { Loader2, Sparkles, Pencil, CalendarIcon } from "lucide-react"
+import { Loader2, Sparkles, Pencil, CalendarIcon, Clock } from "lucide-react"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
 
@@ -80,7 +84,10 @@ export function HabitForm({ presetHabits }: HabitFormProps) {
   const [color, setColor] = useState("#10b981")
   const [allowedFrequency, setAllowedFrequency] = useState<number | null>(null)
   const [frequencyPeriod, setFrequencyPeriod] = useState<"day" | "week" | "month">("week")
+  
+  // Date and Time state
   const [startDate, setStartDate] = useState<Date>(new Date())
+  const [startTime, setStartTime] = useState("00:00")
 
   const handlePresetSelect = (preset: PresetHabit) => {
     setSelectedPreset(preset)
@@ -93,9 +100,10 @@ export function HabitForm({ presetHabits }: HabitFormProps) {
     setAllowedFrequency(preset.suggested_frequency)
     setFrequencyPeriod(preset.frequency_period || "week")
     setStartDate(new Date())
+    setStartTime("00:00")
   }
 
-  // Helper to format date as YYYY-MM-DD in local time to avoid timezone issues
+  // Helper to format date as YYYY-MM-DD for DB comparisons
   const formatLocalYMD = (date: Date) => {
     const year = date.getFullYear()
     const month = String(date.getMonth() + 1).padStart(2, "0")
@@ -115,7 +123,12 @@ export function HabitForm({ presetHabits }: HabitFormProps) {
       } = await supabase.auth.getUser()
       if (!user) throw new Error("Not authenticated")
 
-      // 1. Create the habit and get the returned data (specifically the ID)
+      // Combine date and time
+      const fullStartDateTime = new Date(startDate)
+      const [hours, minutes] = startTime.split(":").map(Number)
+      fullStartDateTime.setHours(hours, minutes, 0, 0)
+
+      // 1. Create the habit
       const { data: newHabit, error } = await supabase
         .from("habits")
         .insert({
@@ -126,7 +139,8 @@ export function HabitForm({ presetHabits }: HabitFormProps) {
           habit_type: habitType,
           icon,
           color,
-          start_date: formatLocalYMD(startDate),
+          // Send full ISO string to TIMESTAMPTZ column
+          start_date: fullStartDateTime.toISOString(),
           allowed_frequency: habitType === "reduce" ? allowedFrequency : null,
           frequency_period: habitType === "reduce" ? frequencyPeriod : null,
           is_active: true,
@@ -142,12 +156,12 @@ export function HabitForm({ presetHabits }: HabitFormProps) {
       const todayStr = formatLocalYMD(today)
       const startDateStr = formatLocalYMD(startDate)
 
+      // Only backfill if the start DATE is strictly before today's DATE
       if (startDateStr < todayStr) {
         const checkinsToCreate = []
         const cursorDate = new Date(startDate)
         
         // Loop from start date up to yesterday (exclusive of today)
-        // We use string comparison to correspond with the YYYY-MM-DD DB format
         while (formatLocalYMD(cursorDate) < todayStr) {
           checkinsToCreate.push({
             habit_id: newHabit.id,
@@ -285,35 +299,50 @@ export function HabitForm({ presetHabits }: HabitFormProps) {
                 </div>
               )}
 
-              <div className="space-y-2">
-                <Label>When did you start this journey?</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className={cn(
-                        "w-full justify-start text-left font-normal",
-                        !startDate && "text-muted-foreground",
-                      )}
-                    >
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {format(startDate, "PPP")}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={startDate}
-                      onSelect={(date) => date && setStartDate(date)}
-                      disabled={(date) => date > new Date()}
-                      initialFocus
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Start Date</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className={cn(
+                          "w-full justify-start text-left font-normal",
+                          !startDate && "text-muted-foreground",
+                        )}
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {format(startDate, "PPP")}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={startDate}
+                        onSelect={(date) => date && setStartDate(date)}
+                        disabled={(date) => date > new Date()}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Start Time</Label>
+                  <div className="relative">
+                    <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      type="time"
+                      value={startTime}
+                      onChange={(e) => setStartTime(e.target.value)}
+                      className="pl-10"
                     />
-                  </PopoverContent>
-                </Popover>
-                <p className="text-xs text-muted-foreground">
-                  Select the date you started (or want to start) tracking this habit
-                </p>
+                  </div>
+                </div>
               </div>
+              <p className="text-xs text-muted-foreground">
+                When did you start (or want to start) tracking this habit?
+              </p>
 
               <Button onClick={handleSubmit} disabled={isLoading} className="w-full">
                 {isLoading ? (
@@ -419,34 +448,49 @@ export function HabitForm({ presetHabits }: HabitFormProps) {
                 </div>
               )}
 
-              <div className="space-y-2">
-                <Label>Start Date</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className={cn(
-                        "w-full justify-start text-left font-normal",
-                        !startDate && "text-muted-foreground",
-                      )}
-                    >
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {format(startDate, "PPP")}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={startDate}
-                      onSelect={(date) => date && setStartDate(date)}
-                      disabled={(date) => date > new Date()}
-                      initialFocus
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Start Date</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className={cn(
+                          "w-full justify-start text-left font-normal",
+                          !startDate && "text-muted-foreground",
+                        )}
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {format(startDate, "PPP")}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={startDate}
+                        onSelect={(date) => date && setStartDate(date)}
+                        disabled={(date) => date > new Date()}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Start Time</Label>
+                  <div className="relative">
+                    <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      type="time"
+                      value={startTime}
+                      onChange={(e) => setStartTime(e.target.value)}
+                      className="pl-10"
                     />
-                  </PopoverContent>
-                </Popover>
-                <p className="text-xs text-muted-foreground">When did you start (or want to start) this habit?</p>
+                  </div>
+                </div>
               </div>
+              <p className="text-xs text-muted-foreground">When did you start (or want to start) this habit?</p>
 
               <div className="space-y-2">
                 <Label>Icon</Label>
@@ -504,4 +548,5 @@ export function HabitForm({ presetHabits }: HabitFormProps) {
       </TabsContent>
     </Tabs>
   )
+}
 }
