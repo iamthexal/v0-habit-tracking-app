@@ -545,4 +545,3 @@ export function HabitForm({ presetHabits }: HabitFormProps) {
     </Tabs>
   )
 }
-}
