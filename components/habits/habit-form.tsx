@@ -95,6 +95,14 @@ export function HabitForm({ presetHabits }: HabitFormProps) {
     setStartDate(new Date())
   }
 
+  // Helper to format date as YYYY-MM-DD in local time to avoid timezone issues
+  const formatLocalYMD = (date: Date) => {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, "0")
+    const day = String(date.getDate()).padStart(2, "0")
+    return `${year}-${month}-${day}`
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
@@ -107,22 +115,67 @@ export function HabitForm({ presetHabits }: HabitFormProps) {
       } = await supabase.auth.getUser()
       if (!user) throw new Error("Not authenticated")
 
-      const { error } = await supabase.from("habits").insert({
-        user_id: user.id,
-        name,
-        description: description || null,
-        category,
-        habit_type: habitType,
-        icon,
-        color,
-        start_date: startDate.toISOString().split("T")[0],
-        allowed_frequency: habitType === "reduce" ? allowedFrequency : null,
-        frequency_period: habitType === "reduce" ? frequencyPeriod : null,
-        is_active: true,
-        is_archived: false,
-      })
+      // 1. Create the habit and get the returned data (specifically the ID)
+      const { data: newHabit, error } = await supabase
+        .from("habits")
+        .insert({
+          user_id: user.id,
+          name,
+          description: description || null,
+          category,
+          habit_type: habitType,
+          icon,
+          color,
+          start_date: formatLocalYMD(startDate),
+          allowed_frequency: habitType === "reduce" ? allowedFrequency : null,
+          frequency_period: habitType === "reduce" ? frequencyPeriod : null,
+          is_active: true,
+          is_archived: false,
+        })
+        .select()
+        .single()
 
       if (error) throw error
+
+      // 2. Backfill check-ins if start date is in the past
+      const today = new Date()
+      const todayStr = formatLocalYMD(today)
+      const startDateStr = formatLocalYMD(startDate)
+
+      if (startDateStr < todayStr) {
+        const checkinsToCreate = []
+        const cursorDate = new Date(startDate)
+        
+        // Loop from start date up to yesterday (exclusive of today)
+        // We use string comparison to correspond with the YYYY-MM-DD DB format
+        while (formatLocalYMD(cursorDate) < todayStr) {
+          checkinsToCreate.push({
+            habit_id: newHabit.id,
+            user_id: user.id,
+            date: formatLocalYMD(cursorDate),
+            status: "clean", // Assume success for past days
+          })
+          
+          // Move to next day
+          cursorDate.setDate(cursorDate.getDate() + 1)
+        }
+
+        if (checkinsToCreate.length > 0) {
+          const { error: backfillError } = await supabase
+            .from("checkins")
+            .insert(checkinsToCreate)
+
+          if (backfillError) {
+            console.error("Error backfilling history:", backfillError)
+            toast.error("Habit created, but failed to save past history.")
+          } else {
+            toast.success(`Habit created with ${checkinsToCreate.length} days of history!`)
+            router.push("/dashboard/habits")
+            router.refresh()
+            return
+          }
+        }
+      }
 
       toast.success("Habit created successfully!")
       router.push("/dashboard/habits")
