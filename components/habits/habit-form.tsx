@@ -1,7 +1,3 @@
-{
-type: uploaded file
-fileName: iamthexal/v0-habit-tracking-app/v0-habit-tracking-app-e64391ab4955e5c244ae7cfbf2205de366211492/components/habits/habit-form.tsx
-fullContent:
 "use client"
 
 import type React from "react"
